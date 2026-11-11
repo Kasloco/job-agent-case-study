@@ -18,9 +18,9 @@ sequenceDiagram
     O->>N: One tracker + log read for dedupe
     O->>S: Search job boards, alert emails, web search
     S-->>O: Candidate postings
-    O->>O: Filter (location, cut list, pay floor, liveness)
-    O->>O: Score 1–5 on 7 weighted factors
-    O->>O: Write "Way in" note from public info
+    Note right of O: Filter (location, cut list, pay floor, liveness)
+    Note right of O: Score 1–5 on 7 weighted factors
+    Note right of O: Write "Way in" note from public info
     O->>D: Write tailored letter, export PDF
     O->>N: Add rows as "Not applied" with letter link
     alt score ≥ threshold AND all hard gates pass (max 3)

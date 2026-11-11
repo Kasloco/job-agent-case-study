@@ -2,71 +2,36 @@
 
 A working multi-agent system that runs my job search. It sources leads, scores them against a written playbook, drafts a tailored cover letter for each one, and queues the strongest for an apply agent, while I keep a veto over everything that goes out under my name.
 
-This repo is a case study, not a product. It documents the architecture, the guardrails, and what the data taught me. The pattern is the same one companies are trying to roll out internally: specialized agents with narrow permissions, one shared source of truth, explicit approval gates, and a feedback loop that changes behavior based on outcomes.
-
-![System overview](docs/diagrams/system-overview.png)
-
-<details>
-<summary>Mermaid source (renders on GitHub)</summary>
+This repo is a case study. It documents the architecture, the guardrails, and what the data taught me. The pattern is the same one companies are trying to roll out internally: specialized agents with narrow permissions, one shared source of truth, explicit approval gates, and a feedback loop that changes behavior based on outcomes.
 
 ```mermaid
 flowchart TB
-    subgraph SRC["1 · Lead sources"]
-        direction LR
-        JB["Employer job boards"]
-        GA["Job-alert emails"]
-        FC["Web search + scrape<br/>(experimental)"]
-        SA["Sourcing agent"]
-    end
-
-    subgraph ORC["2 · Orchestrator agent (scheduled routines)"]
-        direction LR
-        SCAN["Sourcing scan<br/>filter + dedupe"] --> SCORE["Score vs<br/>playbook"] --> LETTER["Tailored letter<br/>+ Way-in note"] --> AUTO["Auto-approve<br/>≤ 3/day"]
-    end
-
-    subgraph STATE["Shared state (Notion)"]
-        direction LR
-        PB[("Search Playbook<br/>weights · threshold · cut list")]
-        LT[("Leads Tracker")]
-        PAL[("Past Applications Log")]
-    end
-
-    HUMAN(["3 · Human<br/>report + veto until 11:45 AM"])
-    APPLY["4 · Apply agent<br/>~11:50 AM, re-checks status"]
-    EMP(["Employer ATS"])
-    SYNC["5 · Inbox sync (3x/day)<br/>+ liveness check + cleanup"]
-    LEARN["6 · Weekly learning review<br/>retunes weights ±0.2"]
-    RELAY["Relay agent<br/>email → team chat"]
-
-    SRC --> SCAN
-    SA -. adds rows .-> LT
-    PB --> SCORE
-    AUTO --> LT
-    AUTO --> HUMAN
-    ORC -. summary email .-> RELAY -.-> HUMAN
-    HUMAN -- "veto → Passed" --> LT
-    LT -- "Approved to apply" --> APPLY
-    APPLY --> EMP
-    APPLY -- "Applied / Needs human /<br/>Posting Closed" --> LT
-    EMP -. confirmations, rejections .-> SYNC
+    SRC["Lead sources<br/>boards, alerts, web search,<br/>sourcing agent"] --> ORC["Orchestrator agent<br/>filter, dedupe, score, letter,<br/>auto-approve (max 3/day)"]
+    PB[("Search Playbook")] --> ORC
+    ORC --> LT[("Leads Tracker")]
+    ORC --> HUMAN(["Human<br/>report + veto until 11:45 AM"])
+    ORC -. summary email .-> RELAY["Relay agent"] -.-> HUMAN
+    HUMAN -- "veto" --> LT
+    LT -- "approved" --> APPLY["Apply agent<br/>~11:50 AM, re-checks status"]
+    APPLY --> EMP(["Employer ATS"])
+    APPLY -- "status" --> LT
+    EMP -. "confirmations, rejections" .-> SYNC["Inbox sync 3x/day<br/>liveness check + cleanup"]
     SYNC --> LT
-    SYNC -- "log before removing" --> PAL
-    PAL --> LEARN
+    SYNC -- "log before removing" --> PAL[("Past Applications Log")]
+    PAL --> LEARN["Weekly learning review<br/>threshold and family scores, bounded"]
     LT --> LEARN
     LEARN --> PB
 ```
-
-</details>
 
 ---
 
 ## The problem
 
-A serious job search is a high-volume operations problem. There's a constant stream of postings to triage, each worth applying to needs its own letter, application status arrives as scattered emails, and the useful signal (which kinds of roles actually lead to interviews) is buried under all of it.
+A serious job search is a high-volume operations problem. There's a constant stream of postings to triage, each worth applying to needs its own letter, application status arrives as scattered emails, and the useful signal (which kinds of roles lead to interviews) is buried under all of it.
 
 The obvious automation, applying to everything, makes things worse. Reviewing my own application history showed that broad, high-volume applying mostly produced fast automated rejections. Targeted internal AI adoption roles were where real conversations happened. So I redesigned the system around fit over volume.
 
-So the goal was never more applications. It was **fewer, better-targeted applications with less of my time spent on each**, plus a system that learns which targets are worth it.
+The goal became **fewer, better-targeted applications with less of my time spent on each**, plus a system that learns which targets are worth it.
 
 ## What the system does
 
@@ -102,7 +67,7 @@ Full walkthrough: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 These rules matter more than any single feature.
 
-- **Nothing reaches an employer without my approval.** I approve either explicitly or by not vetoing within the window. Outbound email under my name always goes on a draft card I send with one tap.
+- **Nothing reaches an employer without my sign-off, which comes in two forms.** For auto-approved leads, sign-off is a veto window. I get a report with the letter attached and a deadline, and silence means go. That delegates the submit step to the apply agent for a small, gated set of leads. Anything outside that set needs my explicit approval. Outbound email under my name always goes on a draft card I send with one tap.
 - **Bounded autonomy.** At most 3 auto-approvals a day, only in my two focus lanes, only above the score threshold, only if a letter is attached, and never for a company I applied to in the last 60 days.
 - **Re-check before acting.** The apply agent re-reads status at the moment of applying, so a veto at 11:44 still holds.
 - **Stop and ask, don't guess.** When the apply agent hits a login, CAPTCHA, legal agreement, or unknown answer, it marks the row *Needs human* with the exact reason.
@@ -111,6 +76,10 @@ These rules matter more than any single feature.
 - **Dedupe everywhere.** Every lead is checked against the live tracker and the historical log, matched on company + role. A role I was rejected from never comes back, even under a new requisition ID.
 - **Log before delete.** No row leaves the tracker until it's in the Past Applications Log.
 - **Learning is bounded too.** The threshold moves at most 0.2 per week and never outside 3.8–4.6.
+
+## Security
+
+The agents read untrusted input (job postings, scraped pages, inbound email) and hold write access to a tracker and a browser session. The threat model, controls, and residual risks are in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md).
 
 ## Early days
 
@@ -134,13 +103,13 @@ There's very little custom code. The system is mostly configuration: routine pro
 
 ## Lessons learned
 
-1. **Look at your own history before you automate more.** The most useful step was stepping back to see which kinds of roles actually led to conversations, then pointing the system at those instead of at volume.
+1. **Look at your own history before you automate more.** The most useful step was stepping back to see which kinds of roles led to conversations, then pointing the system at those instead of at volume.
 2. **Write the rules down where every agent reads them.** One playbook page holds the weights, threshold, cut list, and letter rules. Agents read it each run, so changing behavior means editing a page, not rewriting prompts.
 3. **Give each agent the smallest write scope that works.** The apply agent can touch four fields. That's why I trust it to run unattended.
 4. **Veto beats approve for low-risk, high-frequency decisions.** Approving each lead by hand was the bottleneck. A short veto window keeps me in control without making me the queue.
 5. **Design for the platform's limits.** The tracker API has tight rate limits, so each routine does one full read and works from that snapshot. Status counts in reports say how fresh they are.
 6. **"Stop and flag" is a feature.** The most valuable status the apply agent sets may be *Needs human*.
-7. **Keep humans as the sender.** Agents draft. I send. That one rule removed most of the risk.
+7. **Keep a human in the loop on anything that carries my name.** Agents draft. Email goes out only when I tap send. Applications go out through a bounded delegation: a capped daily batch, a veto window, and an apply agent with a four-field write scope. Widening that delegation is a decision for me, not a routine change.
 
 ## What's next
 
@@ -153,9 +122,10 @@ There's very little custom code. The system is mostly configuration: routine pro
 
 ```
 README.md                  this file
-BLURB.md                   short portfolio / LinkedIn description
 docs/ARCHITECTURE.md       data model, daily flow, design decisions
-docs/diagrams/             Mermaid sources + rendered PNGs
+docs/THREAT-MODEL.md       trust boundaries, threats, controls, residual risks
+docs/diagrams/             Mermaid diagram sources
+LICENSE                    MIT
 examples/                  sanitized rubric, schema, routine prompt, fictional samples
 ```
 

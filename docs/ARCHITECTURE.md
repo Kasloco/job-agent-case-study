@@ -10,12 +10,13 @@ This document walks through how the pipeline is built and why. For the short ver
 - [6. Failure handling](#6-failure-handling)
 - [7. The consulting pipeline](#7-the-consulting-pipeline)
 - [8. What I'd change](#8-what-id-change)
+- [9. Threat model](#9-threat-model)
 
 ---
 
 ## 1. Design goals
 
-1. **Quality over volume.** Spend applications where conversations actually happen.
+1. **Quality over volume.** Spend applications where conversations happen.
 2. **The human stays the decision-maker.** Agents propose and prepare. I approve, by default through a veto window.
 3. **One source of truth.** Every agent reads and writes the same tracker. No agent keeps private state that others depend on.
 4. **Least privilege.** Each agent can write only the fields its job needs.
@@ -24,7 +25,24 @@ This document walks through how the pipeline is built and why. For the short ver
 
 ## 2. Components
 
-![System overview](diagrams/system-overview.png)
+```mermaid
+flowchart TB
+    SRC["Lead sources<br/>boards, alerts, web search,<br/>sourcing agent"] --> ORC["Orchestrator agent<br/>filter, dedupe, score, letter,<br/>auto-approve (max 3/day)"]
+    PB[("Search Playbook")] --> ORC
+    ORC --> LT[("Leads Tracker")]
+    ORC --> HUMAN(["Human<br/>report + veto until 11:45 AM"])
+    ORC -. summary email .-> RELAY["Relay agent"] -.-> HUMAN
+    HUMAN -- "veto" --> LT
+    LT -- "approved" --> APPLY["Apply agent<br/>~11:50 AM, re-checks status"]
+    APPLY --> EMP(["Employer ATS"])
+    APPLY -- "status" --> LT
+    EMP -. "confirmations, rejections" .-> SYNC["Inbox sync 3x/day<br/>liveness check + cleanup"]
+    SYNC --> LT
+    SYNC -- "log before removing" --> PAL[("Past Applications Log")]
+    PAL --> LEARN["Weekly learning review<br/>threshold and family scores, bounded"]
+    LT --> LEARN
+    LEARN --> PB
+```
 
 | Component | What it is |
 |---|---|
@@ -83,7 +101,7 @@ stateDiagram-v2
 Two ownership rules keep agents from stepping on each other:
 
 - **Approved to apply** belongs to me and the apply agent. Other agents count it like *Not applied* for reporting but never set, change, or clear it. The only exception is carrying out my veto.
-- **Needs human** belongs to me. Other agents leave those rows alone.
+- **Needs human** is set by the apply agent and then belongs to me. Other agents leave those rows alone.
 
 ### Past Applications Log
 
@@ -91,7 +109,61 @@ A slimmer record: Company, Role, Posting URL, Final Status (*Rejected*, *Posting
 
 ## 4. The daily flow
 
-![Daily run sequence](diagrams/daily-run-sequence.png)
+```mermaid
+sequenceDiagram
+    autonumber
+    participant O as Orchestrator agent
+    participant S as Job sites (boards + employer ATS)
+    participant N as Notion (Playbook, Tracker, Log)
+    participant D as Document store (letters + PDFs)
+    participant H as Human
+    participant A as Apply agent
+    participant R as Relay agent
+
+    Note over O,N: 8:13 AM: liveness check
+    O->>N: Read active rows (one query)
+    O->>S: Re-check each posting URL
+    O->>N: Mark dead postings "Posting Closed"
+
+    Note over O,S: ~10:35 AM: sourcing scan
+    O->>N: Read Playbook (weights, threshold, cut list)
+    O->>N: One tracker + log read for dedupe
+    O->>S: Search job boards, alert emails, web search
+    S-->>O: Candidate postings
+    Note right of O: Filter (location, cut list, pay floor, liveness)
+    Note right of O: Score 1–5 on 7 weighted factors
+    Note right of O: Write "Way in" note from public info
+    O->>D: Write tailored letter, export PDF
+    O->>N: Add rows as "Not applied" with letter link
+    alt score ≥ threshold AND all hard gates pass (max 3)
+        O->>N: Set "Approved to apply" + note "Veto by 11:45"
+    end
+    O->>H: Report: auto-approved list, held leads, veto deadline
+    O->>R: Summary email
+    R->>H: Digest in chat
+
+    opt Before 11:45 AM
+        H->>O: "veto <company>"
+        O->>N: Log row in Past Applications Log
+        O->>N: Set row to "Passed"
+    end
+
+    Note over A,N: ~11:50 AM: apply window
+    A->>N: Re-read Status right before applying
+    alt still "Approved to apply"
+        A->>S: Fill and submit form (Application Profile answers)
+        A->>N: "Applied" + Date applied + note
+    else blocked (login, CAPTCHA, missing answer)
+        A->>N: "Needs human" + exact reason
+    else posting dead
+        A->>N: "Posting Closed"
+    end
+
+    Note over O,N: 3x/day: inbox sync
+    O->>N: Confirmations → Applied, rejections → Rejected
+    O->>D: Delete letters for closed rows (exact company + role)
+    O->>N: Cleanup: log, then remove Passed / Rejected rows
+```
 
 ### 4.1 Liveness check (weekdays, 8:13 AM)
 
@@ -269,3 +341,9 @@ A separate pipeline (separate tracker, separate labels) looks for contract and f
 - **Structured scores.** Score and lane currently live in a text field. Numeric fields would make the weekly review easier.
 - **A real event log.** Status changes are visible, but not who changed what and when, beyond notes lines.
 - **Fewer agents writing rows.** Two agents creating rows means dedupe has to run in two places.
+- **An independent check on auto-approval.** The orchestrator scores, writes the letter, and approves its own output. A second, narrower reviewer agent or a rules-only gate check would separate those duties.
+- **More signal before tuning.** At a few applications a week, outcome counts are small. The weekly review should hold changes until a role family has enough outcomes to mean something.
+
+## 9. Threat model
+
+See [THREAT-MODEL.md](THREAT-MODEL.md).

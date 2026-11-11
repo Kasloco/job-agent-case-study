@@ -1,44 +1,16 @@
 flowchart TB
-    subgraph SRC["1 · Lead sources"]
-        direction LR
-        JB["Employer job boards"]
-        GA["Job-alert emails"]
-        FC["Web search + scrape<br/>(experimental)"]
-        SA["Sourcing agent"]
-    end
-
-    subgraph ORC["2 · Orchestrator agent (scheduled routines)"]
-        direction LR
-        SCAN["Sourcing scan<br/>filter + dedupe"] --> SCORE["Score vs<br/>playbook"] --> LETTER["Tailored letter<br/>+ Way-in note"] --> AUTO["Auto-approve<br/>≤ 3/day"]
-    end
-
-    subgraph STATE["Shared state (Notion)"]
-        direction LR
-        PB[("Search Playbook<br/>weights · threshold · cut list")]
-        LT[("Leads Tracker")]
-        PAL[("Past Applications Log")]
-    end
-
-    HUMAN(["3 · Human<br/>report + veto until 11:45 AM"])
-    APPLY["4 · Apply agent<br/>~11:50 AM, re-checks status"]
-    EMP(["Employer ATS"])
-    SYNC["5 · Inbox sync (3x/day)<br/>+ liveness check + cleanup"]
-    LEARN["6 · Weekly learning review<br/>retunes weights ±0.2"]
-    RELAY["Relay agent<br/>email → team chat"]
-
-    SRC --> SCAN
-    SA -. adds rows .-> LT
-    PB --> SCORE
-    AUTO --> LT
-    AUTO --> HUMAN
-    ORC -. summary email .-> RELAY -.-> HUMAN
-    HUMAN -- "veto → Passed" --> LT
-    LT -- "Approved to apply" --> APPLY
-    APPLY --> EMP
-    APPLY -- "Applied / Needs human /<br/>Posting Closed" --> LT
-    EMP -. confirmations, rejections .-> SYNC
+    SRC["Lead sources<br/>boards, alerts, web search,<br/>sourcing agent"] --> ORC["Orchestrator agent<br/>filter, dedupe, score, letter,<br/>auto-approve (max 3/day)"]
+    PB[("Search Playbook")] --> ORC
+    ORC --> LT[("Leads Tracker")]
+    ORC --> HUMAN(["Human<br/>report + veto until 11:45 AM"])
+    ORC -. summary email .-> RELAY["Relay agent"] -.-> HUMAN
+    HUMAN -- "veto" --> LT
+    LT -- "approved" --> APPLY["Apply agent<br/>~11:50 AM, re-checks status"]
+    APPLY --> EMP(["Employer ATS"])
+    APPLY -- "status" --> LT
+    EMP -. "confirmations, rejections" .-> SYNC["Inbox sync 3x/day<br/>liveness check + cleanup"]
     SYNC --> LT
-    SYNC -- "log before removing" --> PAL
-    PAL --> LEARN
+    SYNC -- "log before removing" --> PAL[("Past Applications Log")]
+    PAL --> LEARN["Weekly learning review<br/>threshold and family scores, bounded"]
     LT --> LEARN
     LEARN --> PB

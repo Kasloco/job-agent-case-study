@@ -20,7 +20,7 @@ Every name, link, and detail below is invented.
 | Status | Approved to apply |
 | Date applied | — |
 | Next step | Apply agent run ~11:50 AM |
-| Notes | Auto-approved 2026-11-11, score 4.8. Veto by 11:45 AM. · Way in: role reports to the VP of Operations Excellence (named in posting); team is the "Digital Workplace" group. Posting says no agencies. |
+| Notes | Auto-approved 2026-03-02, score 4.8. Veto by 11:45 AM. · Way in: role reports to the VP of Operations Excellence (named in posting); team is the "Digital Workplace" group. Posting says no agencies. |
 | Archive | ☐ |
 
 ## Score breakdown

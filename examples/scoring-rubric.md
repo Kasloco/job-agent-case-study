@@ -21,6 +21,8 @@ score = 0.25·lane + 0.25·family_history + 0.15·seniority
 | **Way-in strength** | 0.10 | Clear public path to the hiring manager or team | Plausible path, weakly documented | None, or only through an agency |
 | **Posting freshness** | 0.05 | Posted within ~7 days and confirmed live | Live, older, or date unknown | Stale or closed |
 
+Lane fit and role-family history overlap. A primary-lane role scores 5 on both, so half the total weight tracks one signal, and a 4.2 threshold in practice means primary lane. That is intended, but it means the other five factors mostly separate good primary-lane leads from average ones.
+
 Lane fit 4 = a secondary-lane company (media) adopting AI internally. Family history 2 = families still allowed in small volume.
 
 ## Auto-approve threshold
