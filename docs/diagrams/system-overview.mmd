@@ -1,0 +1,44 @@
+flowchart TB
+    subgraph SRC["1 · Lead sources"]
+        direction LR
+        JB["Employer job boards"]
+        GA["Job-alert emails"]
+        FC["Web search + scrape<br/>(experimental)"]
+        SA["Sourcing agent"]
+    end
+
+    subgraph ORC["2 · Orchestrator agent (scheduled routines)"]
+        direction LR
+        SCAN["Sourcing scan<br/>filter + dedupe"] --> SCORE["Score vs<br/>playbook"] --> LETTER["Tailored letter<br/>+ Way-in note"] --> AUTO["Auto-approve<br/>≤ 3/day"]
+    end
+
+    subgraph STATE["Shared state (Notion)"]
+        direction LR
+        PB[("Search Playbook<br/>weights · threshold · cut list")]
+        LT[("Leads Tracker")]
+        PAL[("Past Applications Log")]
+    end
+
+    HUMAN(["3 · Human<br/>report + veto until 11:45 AM"])
+    APPLY["4 · Apply agent<br/>~11:50 AM, re-checks status"]
+    EMP(["Employer ATS"])
+    SYNC["5 · Inbox sync (3x/day)<br/>+ liveness check + cleanup"]
+    LEARN["6 · Weekly learning review<br/>retunes weights ±0.2"]
+    RELAY["Relay agent<br/>email → team chat"]
+
+    SRC --> SCAN
+    SA -. adds rows .-> LT
+    PB --> SCORE
+    AUTO --> LT
+    AUTO --> HUMAN
+    ORC -. summary email .-> RELAY -.-> HUMAN
+    HUMAN -- "veto → Passed" --> LT
+    LT -- "Approved to apply" --> APPLY
+    APPLY --> EMP
+    APPLY -- "Applied / Needs human /<br/>Posting Closed" --> LT
+    EMP -. confirmations, rejections .-> SYNC
+    SYNC --> LT
+    SYNC -- "log before removing" --> PAL
+    PAL --> LEARN
+    LT --> LEARN
+    LEARN --> PB

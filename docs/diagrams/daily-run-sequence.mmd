@@ -1,0 +1,53 @@
+sequenceDiagram
+    autonumber
+    participant O as Orchestrator agent
+    participant S as Job sites (boards + employer ATS)
+    participant N as Notion (Playbook, Tracker, Log)
+    participant D as Document store (letters + PDFs)
+    participant H as Human
+    participant A as Apply agent
+    participant R as Relay agent
+
+    Note over O,N: 8:13 AM: liveness check
+    O->>N: Read active rows (one query)
+    O->>S: Re-check each posting URL
+    O->>N: Mark dead postings "Posting Closed"
+
+    Note over O,S: ~10:35 AM: sourcing scan
+    O->>N: Read Playbook (weights, threshold, cut list)
+    O->>N: One tracker + log read for dedupe
+    O->>S: Search job boards, alert emails, web search
+    S-->>O: Candidate postings
+    O->>O: Filter (location, cut list, pay floor, liveness)
+    O->>O: Score 1–5 on 7 weighted factors
+    O->>O: Write "Way in" note from public info
+    O->>D: Write tailored letter, export PDF
+    O->>N: Add rows as "Not applied" with letter link
+    alt score ≥ threshold AND all hard gates pass (max 3)
+        O->>N: Set "Approved to apply" + note "Veto by 11:45"
+    end
+    O->>H: Report: auto-approved list, held leads, veto deadline
+    O->>R: Summary email
+    R->>H: Digest in chat
+
+    opt Before 11:45 AM
+        H->>O: "veto <company>"
+        O->>N: Log row in Past Applications Log
+        O->>N: Set row to "Passed"
+    end
+
+    Note over A,N: ~11:50 AM: apply window
+    A->>N: Re-read Status right before applying
+    alt still "Approved to apply"
+        A->>S: Fill and submit form (Application Profile answers)
+        A->>N: "Applied" + Date applied + note
+    else blocked (login, CAPTCHA, missing answer)
+        A->>N: "Needs human" + exact reason
+    else posting dead
+        A->>N: "Posting Closed"
+    end
+
+    Note over O,N: 3x/day: inbox sync
+    O->>N: Confirmations → Applied, rejections → Rejected
+    O->>D: Delete letters for closed rows (exact company + role)
+    O->>N: Cleanup: log, then remove Passed / Rejected rows
